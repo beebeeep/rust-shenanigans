@@ -12,7 +12,7 @@ const _INVALID_ENTRY: DirEntry = DirEntry {
     url: None,
 };
 
-#[derive(PartialEq, Debug, Clone, Copy)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy, Hash)]
 pub enum GopherItem {
     TextFile,
     Submenu,
@@ -114,7 +114,7 @@ impl Display for GopherItem {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct GopherURL {
     pub host: String,
     pub port: u16,
