@@ -1,5 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use std::io::Read;
+use std::net::{self, ToSocketAddrs};
+use std::time::Duration;
 use std::{fmt::Display, io::BufRead};
 use std::{
     io::{BufReader, Cursor, Write},
@@ -252,11 +254,23 @@ impl Menu {
 }
 
 pub fn fetch_url(url: &GopherURL, query: Option<String>) -> Result<impl BufRead> {
-    let addr = format!("{}:{}", url.host, url.port);
-    let mut stream = TcpStream::connect(&addr).context(format!("connecting to {addr}"))?;
+    log::debug!("fetching {url}");
+    let addr: net::SocketAddr;
+    match format!("{}:{}", url.host, url.port)
+        .to_socket_addrs()
+        .context("resolving host")?
+        .next()
+    {
+        Some(x) => addr = x,
+        None => return Err(anyhow!("no address resolved")),
+    }
+    let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(5))
+        .context(format!("connecting to {addr}"))?;
     let selector = query.map_or(format!("{}\r\n", url.selector), |q| {
         format!("{}\t{}\r\n", url.selector, q)
     });
+    stream.set_write_timeout(Some(Duration::from_secs(5)))?;
+    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     stream
         .write_all(selector.as_bytes())
         .context(format!("querying {addr}"))?;
@@ -325,5 +339,14 @@ mod tests {
 
         u = GopherURL::new("1.1.1.1", "70", &GopherItem::TextFile, "some-selector");
         assert_eq!(u.to_string(), "gopher://1.1.1.1:70/0some-selector");
+    }
+
+    #[test]
+    fn fetching() {
+        let url = GopherURL::try_from("gopher://gopher.386server.info:70/1/Photos/Iraq/").unwrap();
+        let mut c = fetch_url(&url, None).unwrap();
+        let mut s = String::new();
+        c.read_to_string(&mut s).unwrap();
+        println!("{s}");
     }
 }

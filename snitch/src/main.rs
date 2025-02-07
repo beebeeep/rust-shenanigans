@@ -1,4 +1,5 @@
 use anyhow::Context;
+use clap::Parser;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use rusqlite::{params, Connection};
 use snitch::gopher::{fetch_url, GopherItem, GopherURL, Menu};
@@ -15,22 +16,36 @@ struct Site {
     links: Option<Vec<GopherURL>>,
 }
 
+#[derive(Parser)]
+#[command(version, about, long_about = None)]
+struct Args {
+    #[arg(short = 'f', long, default_value = "./db.db")]
+    db_file: String,
+    #[arg(short, long)]
+    seed_urls: Vec<String>,
+    #[arg(short = 'd', long)]
+    seed_from_db: bool,
+    #[arg(short, long, default_value_t = 10)]
+    threads: usize,
+}
+
 fn main() -> Result<()> {
     env_logger::init();
+    let args = Args::parse();
 
-    spider(env::args().skip(1))?;
+    spider(args)?;
 
     Ok(())
 }
 
-fn init_db() -> Result<Connection> {
-    let conn = Connection::open("./db.db")?;
+fn init_db(file: &str) -> Result<Connection> {
+    let conn = Connection::open(file)?;
     conn.execute(
-        "CREATE TABLE IF NOT EXISTS sites(url TEXT, content_id INTEGER)",
+        "CREATE TABLE IF NOT EXISTS pages(url TEXT PRIMARY KEY, type TEXT, content_id INTEGER)",
         (),
     )?;
     conn.execute(
-        "CREATE VIRTUAL TABLE IF NOT EXISTS site_content USING fts4(content TEXT, tokenize=unicode61)",
+        "CREATE VIRTUAL TABLE IF NOT EXISTS page_content USING fts4(content TEXT, tokenize=unicode61)",
         (),
     )?;
     Ok(conn)
@@ -39,53 +54,88 @@ fn init_db() -> Result<Connection> {
 fn store_site(conn: &mut Connection, site: &Site) -> Result<()> {
     let tx = conn.transaction()?;
     if let Some(content) = &site.text {
-        tx.execute("INSERT INTO site_content(content) VALUES(?1)", [content])?;
+        tx.execute("INSERT INTO page_content(content) VALUES(?1)", [content])?;
         tx.execute(
-            "INSERT INTO sites(url, content_id) VALUES (?1, ?2)",
-            params![site.url.to_string(), tx.last_insert_rowid()],
+            "INSERT INTO pages (url, type, content_id) VALUES (?1, ?2, ?3)
+             ON CONFLICT(url) DO UPDATE SET content_id=excluded.content_id",
+            params![
+                site.url.to_string(),
+                site.url.gopher_type.to_string(),
+                tx.last_insert_rowid()
+            ],
         )?;
     }
     tx.commit()?;
     Ok(())
 }
 
-fn spider(seed: impl Iterator<Item = String>) -> Result<()> {
+fn store_url(conn: &mut Connection, url: &GopherURL) -> Result<()> {
+    conn.execute(
+        "INSERT INTO pages (url, type) VALUES (?1, ?2)",
+        params![url.to_string(), url.gopher_type.to_string()],
+    )?;
+    Ok(())
+}
+
+fn spider(mut args: Args) -> Result<()> {
     let mut visited: HashSet<GopherURL> = HashSet::new();
     let (urls_tx, urls_rx) = unbounded();
     let (sites_tx, sites_rx) = unbounded();
-    let mut workers = Vec::with_capacity(10);
-    let mut conn = init_db()?;
+    let mut workers = Vec::with_capacity(args.threads);
+    let mut conn = init_db(&args.db_file)?;
 
-    for _ in 0..workers.capacity() {
+    for i in 0..workers.capacity() {
         let urls_rx = urls_rx.clone();
         let sites_tx = sites_tx.clone();
-        workers.push(thread::spawn(move || worker(urls_rx, sites_tx)));
+        workers.push(thread::spawn(move || worker(i, urls_rx, sites_tx)));
     }
 
-    for url in seed {
+    if args.seed_from_db {
+        let mut stmt =
+            conn.prepare("SELECT url FROM pages WHERE type = ?1 AND content_id IS NULL")?;
+        let mut count = 0;
+        stmt.query_map([GopherItem::Submenu.to_string()], |row| row.get(0))?
+            .for_each(|x| {
+                if let Ok(x) = x {
+                    log::debug!("loaded seed {x}");
+                    args.seed_urls.push(x);
+                    count += 1;
+                }
+            });
+        log::info!("loaded {count} seed urls from DB");
+    }
+
+    for url in args.seed_urls {
         if let Ok(url) = GopherURL::try_from(url.as_str()) {
+            visited.insert(url.clone());
             urls_tx.send(url).context("sending seed url")?;
         }
     }
 
     loop {
         let site = sites_rx.recv().context("receiving site")?;
-        visited.insert(site.url.clone());
-        store_site(&mut conn, &site).unwrap_or_else(|e| log::error!("storing site data: {e:#}"));
-        log::info!("indexed {} ({} urls in queue)", site.url, urls_tx.len());
+        store_site(&mut conn, &site)
+            .unwrap_or_else(|e| log::error!("[spider] storing site data: {e:#}"));
+        log::info!(
+            "[spider] {} urls in queue, {} urls visited",
+            urls_tx.len(),
+            visited.len()
+        );
         for url in site.links.into_iter().flatten() {
-            if visited.contains(&url) {
+            if !visited.insert(url.clone()) {
                 continue;
             }
+            store_url(&mut conn, &url)
+                .unwrap_or_else(|e| log::error!("[spider] storing url {url}: {e:#}"));
             urls_tx
                 .send(url)
-                .unwrap_or_else(|e| log::error!("sending url to worker: {e:#}"));
+                .unwrap_or_else(|e| log::error!("[spider] sending url to worker: {e:#}"));
         }
     }
 }
 
-fn worker(urls: Receiver<GopherURL>, sites: Sender<Site>) {
-    log::info!("worker started");
+fn worker(id: usize, urls: Receiver<GopherURL>, sites: Sender<Site>) {
+    log::info!("worker {id} started");
     loop {
         if let Ok(url) = urls.recv() {
             match get_url(&url) {
@@ -96,6 +146,7 @@ fn worker(urls: Receiver<GopherURL>, sites: Sender<Site>) {
                     log::error!("failed to fetch {url}: {e:#}");
                 }
             }
+            log::info!("[worker {id}] fetched {url}");
         }
     }
 }
