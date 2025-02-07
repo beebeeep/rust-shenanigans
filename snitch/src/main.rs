@@ -1,19 +1,11 @@
 use anyhow::Context;
-use crossbeam_channel::bounded;
-use crossbeam_channel::unbounded;
-use crossbeam_channel::Receiver;
-use crossbeam_channel::Sender;
-use log::error;
-use log::info;
-use snitch::gopher::fetch_url;
-use snitch::gopher::GopherItem;
-use snitch::gopher::GopherURL;
-use snitch::gopher::Menu;
+use crossbeam_channel::{unbounded, Receiver, Sender};
+use rusqlite::{params, Connection};
+use snitch::gopher::{fetch_url, GopherItem, GopherURL, Menu};
 use std::collections::HashSet;
 use std::env;
-use std::sync::mpsc;
+use std::io::Read;
 use std::thread;
-use std::{io::Read, str};
 
 use anyhow::Result;
 
@@ -24,40 +16,36 @@ struct Site {
 }
 
 fn main() -> Result<()> {
-    /*
-    let mut conn = Connection::open("./db.db")?;
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS books(filename TEXT, content_id INTEGER)",
-        (),
-    )?;
-    conn.execute(
-        "CREATE VIRTUAL TABLE IF NOT EXISTS book_content USING fts4(content TEXT, tokenize=unicode61)",
-        (),
-    )?;
-
-    for filename in io::stdin().lines() {
-        let filename = filename?;
-        let mut content = Vec::with_capacity(4096);
-        File::open(&filename)?.read_to_end(&mut content)?;
-        let book = match str::from_utf8(&content) {
-            Ok(s) => String::from(s),
-            Err(_) => WINDOWS_1251.decode(&content, DecoderTrap::Ignore).unwrap(),
-        };
-
-        let tx = conn.transaction()?;
-        tx.execute("INSERT INTO book_content (content) VALUES (?1)", [book])?;
-        tx.execute(
-            "INSERT INTO books(filename, content_id) VALUES (?1, ?2)",
-            params![filename, tx.last_insert_rowid()],
-        )?;
-        tx.commit()?;
-        println!("imported {filename}");
-    }
-    */
-
     env_logger::init();
+
     spider(env::args().skip(1))?;
 
+    Ok(())
+}
+
+fn init_db() -> Result<Connection> {
+    let conn = Connection::open("./db.db")?;
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS sites(url TEXT, content_id INTEGER)",
+        (),
+    )?;
+    conn.execute(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS site_content USING fts4(content TEXT, tokenize=unicode61)",
+        (),
+    )?;
+    Ok(conn)
+}
+
+fn store_site(conn: &mut Connection, site: &Site) -> Result<()> {
+    let tx = conn.transaction()?;
+    if let Some(content) = &site.text {
+        tx.execute("INSERT INTO site_content(content) VALUES(?1)", [content])?;
+        tx.execute(
+            "INSERT INTO sites(url, content_id) VALUES (?1, ?2)",
+            params![site.url.to_string(), tx.last_insert_rowid()],
+        )?;
+    }
+    tx.commit()?;
     Ok(())
 }
 
@@ -66,11 +54,14 @@ fn spider(seed: impl Iterator<Item = String>) -> Result<()> {
     let (urls_tx, urls_rx) = unbounded();
     let (sites_tx, sites_rx) = unbounded();
     let mut workers = Vec::with_capacity(10);
-    for _ in 0..10 {
+    let mut conn = init_db()?;
+
+    for _ in 0..workers.capacity() {
         let urls_rx = urls_rx.clone();
         let sites_tx = sites_tx.clone();
         workers.push(thread::spawn(move || worker(urls_rx, sites_tx)));
     }
+
     for url in seed {
         if let Ok(url) = GopherURL::try_from(url.as_str()) {
             urls_tx.send(url).context("sending seed url")?;
@@ -80,14 +71,15 @@ fn spider(seed: impl Iterator<Item = String>) -> Result<()> {
     loop {
         let site = sites_rx.recv().context("receiving site")?;
         visited.insert(site.url.clone());
-        log::info!("indexed {}", site.url);
+        store_site(&mut conn, &site).unwrap_or_else(|e| log::error!("storing site data: {e:#}"));
+        log::info!("indexed {} ({} urls in queue)", site.url, urls_tx.len());
         for url in site.links.into_iter().flatten() {
             if visited.contains(&url) {
                 continue;
             }
             urls_tx
                 .send(url)
-                .unwrap_or_else(|e| log::error!("sending url to worker: {e}"));
+                .unwrap_or_else(|e| log::error!("sending url to worker: {e:#}"));
         }
     }
 }
@@ -96,13 +88,12 @@ fn worker(urls: Receiver<GopherURL>, sites: Sender<Site>) {
     log::info!("worker started");
     loop {
         if let Ok(url) = urls.recv() {
-            log::info!("indexing {url}");
             match get_url(&url) {
                 Ok(site) => sites
                     .send(site)
-                    .unwrap_or_else(|e| log::error!("failed to sending {url}: {e}")),
+                    .unwrap_or_else(|e| log::error!("failed to sending {url}: {e:#}")),
                 Err(e) => {
-                    log::error!("failed to fetch {url}: {e}");
+                    log::error!("failed to fetch {url}: {e:#}");
                 }
             }
         }
@@ -124,7 +115,7 @@ fn get_url(url: &GopherURL) -> Result<Site> {
             })
         }
         GopherItem::Submenu => {
-            let site = Menu::from_url(&url, None).context("fetching site")?;
+            let site = Menu::from_url(&url, None).context("fetching menu")?;
             Ok(Site {
                 text: Some(
                     site.items
