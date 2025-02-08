@@ -114,6 +114,10 @@ fn spider(mut args: Args) -> Result<()> {
 
     loop {
         let site = sites_rx.recv().context("receiving site")?;
+        if site.url.selector.chars().filter(|c| *c == '/').count() >= 50 {
+            // limit selector depth
+            continue;
+        }
         store_site(&mut conn, &site)
             .unwrap_or_else(|e| log::error!("[spider] storing site data: {e:#}"));
         log::info!(
