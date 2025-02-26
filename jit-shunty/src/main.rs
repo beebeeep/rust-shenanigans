@@ -1,4 +1,6 @@
-#[derive(Debug)]
+use core::fmt;
+use std::{collections::VecDeque, fmt::Display};
+
 enum Token {
     Number(f64),
     LeftParen,
@@ -7,6 +9,25 @@ enum Token {
     Minus,
     Multiply,
     Divide,
+}
+
+type Expression = Vec<Token>;
+impl fmt::Debug for Token {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Token::Number(n) => format!("{n}"),
+                Token::LeftParen => "(".to_string(),
+                Token::RightParen => ")".to_string(),
+                Token::Plus => "+".to_string(),
+                Token::Minus => "-".to_string(),
+                Token::Multiply => "*".to_string(),
+                Token::Divide => "/".to_string(),
+            }
+        )
+    }
 }
 
 fn parse(input: &str) -> Result<Vec<Token>, String> {
@@ -35,6 +56,11 @@ fn parse(input: &str) -> Result<Vec<Token>, String> {
             '/' => Token::Divide,
             _ => return Err(format!("incorrect character {c} at postition {i}")),
         })
+    }
+    if !buf.is_empty() {
+        r.push(Token::Number(
+            buf.parse().map_err(|e| format!("parsing number: {e}"))?,
+        ));
     }
     Ok(r)
 }
@@ -99,6 +125,36 @@ fn token_op(t: Token) -> impl Fn(f64, f64) -> f64 {
     }
 }
 
+fn token_comp(t: Token) -> Vec<u8> {
+    match t {
+        Token::Number(_) | Token::LeftParen | Token::RightParen => Vec::new(),
+        Token::Plus => vec![
+            0xfd, 0x0f, 0x11, 0x44, 0x24, 0xf0, // movsd [rsp-0x10], xmm0
+            0xfd, 0x0f, 0x11, 0x4c, 0x24, 0xf8, // movsd [rsp-0x8], xmm1
+            0xfd, 0x0f, 0x58, 0xc1, // addsd xmm0, xmm1
+            0xc3, // ret
+        ],
+        Token::Minus => vec![
+            0xfd, 0x0f, 0x11, 0x44, 0x24, 0xf0, // movsd [rsp-0x10], xmm0
+            0xfd, 0x0f, 0x11, 0x4c, 0x24, 0xf8, // movsd [rsp-0x8], xmm1
+            0xfd, 0x0f, 0x5c, 0xc1, // subsd xmm0, xmm1
+            0xc3, // ret
+        ],
+        Token::Multiply => vec![
+            0xfd, 0x0f, 0x11, 0x44, 0x24, 0xf0, // movsd [rsp-0x10], xmm0
+            0xfd, 0x0f, 0x11, 0x4c, 0x24, 0xf8, // movsd [rsp-0x8], xmm1
+            0xfd, 0x0f, 0x59, 0xc1, // mulsd xmm0, xmm1
+            0xc3, // ret
+        ],
+        Token::Divide => vec![
+            0xfd, 0x0f, 0x11, 0x44, 0x24, 0xf0, // movsd [rsp-0x10], xmm0
+            0xfd, 0x0f, 0x11, 0x4c, 0x24, 0xf8, // movsd [rsp-0x8], xmm1
+            0xf2, 0x0f, 0x5e, 0xc1, // addsd xmm0, xmm1
+            0xc3, // ret
+        ],
+    }
+}
+
 fn calculate(input: Vec<Token>) -> Result<f64, String> {
     let mut s = Vec::new();
     for t in input {
@@ -122,7 +178,9 @@ fn calculate(input: Vec<Token>) -> Result<f64, String> {
 }
 
 fn main() {
-    let exp = parse("2+2.3*(3-2)").unwrap();
+    let input = "2+8*(5-3)+30*2+10";
+    println!("{input}");
+    let exp = parse(input).unwrap();
     let rpn = shunting_yard(exp).unwrap();
     println!("{rpn:?}");
     println!("{}", calculate(rpn).unwrap());
