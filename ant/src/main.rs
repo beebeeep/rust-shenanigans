@@ -1,7 +1,10 @@
-use sdl2::{self, event::Event, keyboard::Keycode, pixels::Color};
+use sdl2::{self, event::Event, keyboard::Keycode, pixels::Color, rect::Rect};
 use std::{thread, time::Duration};
-const WIDTH: usize = 800;
-const HEIGHT: usize = 600;
+const WIDTH: usize = 1600;
+const HEIGHT: usize = 1200;
+const CELLSIZE: usize = 5;
+const COLS: usize = WIDTH / CELLSIZE;
+const ROWS: usize = HEIGHT / CELLSIZE;
 
 #[derive(Clone)]
 pub struct Dir(pub i32, pub i32);
@@ -25,25 +28,25 @@ struct Ant {
 impl Ant {
     fn step(&mut self) {
         (self.x, self.y) = (
-            (self.x as i32 + DIRECTIONS[self.d].0).rem_euclid(WIDTH as i32) as usize,
-            (self.y as i32 + DIRECTIONS[self.d].1).rem_euclid(HEIGHT as i32) as usize,
+            (self.x as i32 + DIRECTIONS[self.d].0).rem_euclid(COLS as i32) as usize,
+            (self.y as i32 + DIRECTIONS[self.d].1).rem_euclid(ROWS as i32) as usize,
         );
     }
 }
 
 struct Sim {
-    field: [[Color; HEIGHT]; WIDTH],
+    field: [[Color; ROWS]; COLS],
     ant: Ant,
 }
 
 impl Sim {
     fn new() -> Self {
         Self {
-            field: [[Color::BLACK; HEIGHT]; WIDTH],
+            field: [[Color::BLACK; ROWS]; COLS],
             ant: Ant {
                 d: 0,
-                x: WIDTH / 2,
-                y: HEIGHT / 2,
+                x: ROWS / 2,
+                y: COLS / 2,
             },
         }
     }
@@ -91,10 +94,17 @@ fn main() {
             }
         }
         sim.tick();
-        for x in 0..WIDTH as i32 {
-            for y in 0..HEIGHT as i32 {
-                canvas.set_draw_color(sim.field[x as usize][y as usize]);
-                canvas.draw_point((x, y)).unwrap();
+        for (x, col) in sim.field.iter().enumerate() {
+            for (y, fld) in col.iter().enumerate() {
+                canvas.set_draw_color(*fld);
+                canvas
+                    .fill_rect(Rect::new(
+                        (x * CELLSIZE) as i32,
+                        (y * CELLSIZE) as i32,
+                        CELLSIZE as u32,
+                        CELLSIZE as u32,
+                    ))
+                    .unwrap();
             }
         }
         canvas.present();
