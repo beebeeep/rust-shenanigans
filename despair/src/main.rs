@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 const SZ_W: i32 = 320;
 const SZ_H: i32 = 240;
 const SCALE: i32 = 4;
-const PLAYER_SPEED: f32 = 1.0;
+const PLAYER_SPEED: f32 = 4.0;
 const PLAYER_ROT_SPEED: i32 = 1;
 const FPS: u64 = 20;
 
@@ -42,31 +42,29 @@ lazy_static! {
 
 #[derive(Debug)]
 struct Point {
-    x: i32,
-    y: i32,
-    z: i32,
+    x: f32,
+    y: f32,
+    z: f32,
 }
 
 impl Point {
-    fn new(x: i32, y: i32, z: i32) -> Self {
+    fn new(x: f32, y: f32, z: f32) -> Self {
         Self { x, y, z }
     }
 
     fn to_screen(&self, fov: i32) -> Self {
         Self {
-            x: fov * self.x / self.y + (SZ_W / 2),
-            y: fov * self.z / self.y + (SZ_H / 2),
-            z: 0,
+            x: fov as f32 * self.x / self.y + (SZ_W as f32 / 2.0),
+            y: fov as f32 * self.z / self.y + (SZ_H as f32 / 2.0),
+            z: 0.0,
         }
     }
 
     fn to_world(&self, p: &Player) -> Self {
         Self {
-            x: (self.x as f32 * COS[p.dir_h as usize] - self.y as f32 * SIN[p.dir_h as usize])
-                as i32,
-            y: (self.x as f32 * SIN[p.dir_h as usize] + self.y as f32 * COS[p.dir_h as usize])
-                as i32,
-            z: 0 - p.pos.z + (p.dir_v * self.y) / 32,
+            x: (self.x as f32 * COS[p.dir_h as usize] - self.y as f32 * SIN[p.dir_h as usize]),
+            y: (self.x as f32 * SIN[p.dir_h as usize] + self.y as f32 * COS[p.dir_h as usize]),
+            z: 0.0 - p.pos.z + (p.dir_v as f32 * self.y) / 32.0,
         }
     }
 }
@@ -89,7 +87,7 @@ impl Game {
             tick: 0,
             pressed_keys: 0,
             player: Player {
-                pos: Point::new(70, -110, 0),
+                pos: Point::new(70.0, -110.0, 0.0),
                 dir_h: 0,
                 dir_v: 0,
             },
@@ -100,20 +98,25 @@ impl Game {
         self.tick += 1;
 
         let (dx, dy) = (
-            SIN[self.player.dir_h as usize],
-            COS[self.player.dir_h as usize],
+            PLAYER_SPEED * SIN[self.player.dir_h as usize],
+            PLAYER_SPEED * COS[self.player.dir_h as usize],
         );
         if self.pressed_keys & K_UP != 0 {
-            self.player.pos.y += (PLAYER_SPEED * dy) as i32;
+            self.player.pos.x += dx;
+            self.player.pos.y += dy;
         }
         if self.pressed_keys & K_DOWN != 0 {
-            self.player.pos.y -= (PLAYER_SPEED * dy) as i32;
+            self.player.pos.x -= dx;
+            self.player.pos.y -= dy;
         }
         if self.pressed_keys & K_LEFT != 0 {
-            self.player.pos.x -= (PLAYER_SPEED * dx) as i32;
+            self.player.pos.x -= dy;
+            self.player.pos.x -= dx;
         }
         if self.pressed_keys & K_RIGHT != 0 {
-            self.player.pos.x += (PLAYER_SPEED * dx) as i32;
+            println!("right");
+            self.player.pos.x += dy;
+            self.player.pos.y += dx;
         }
         if self.pressed_keys & K_TURNLEFT != 0 {
             self.player.dir_h = (self.player.dir_h + PLAYER_ROT_SPEED).rem_euclid(360);
@@ -127,21 +130,22 @@ impl Game {
         if self.pressed_keys & K_LOOKDOWN != 0 {
             self.player.dir_v = (self.player.dir_v - PLAYER_ROT_SPEED).rem_euclid(360);
         }
+        println!("pl {} {:?}", self.pressed_keys, self.player.pos);
     }
 
     fn render(&self, canvas: &mut Canvas<Window>) {
         canvas.set_draw_color(Color::RED);
-        let p1 = Point::new(40 - self.player.pos.x, 10 - self.player.pos.y, 0);
-        let p2 = Point::new(40 - self.player.pos.x, 290 - self.player.pos.y, 0);
+        let p1 = Point::new(40.0 - self.player.pos.x, 10.0 - self.player.pos.y, 0.);
+        let p2 = Point::new(40.0 - self.player.pos.x, 290.0 - self.player.pos.y, 0.0);
         let wp1 = p1.to_world(&self.player);
         let wp2 = p2.to_world(&self.player);
         let sp1 = wp1.to_screen(200);
         let sp2 = wp2.to_screen(200);
-        if sp1.x > 0 && sp1.x < SZ_W && sp1.y > 0 && sp1.y < SZ_H {
+        if sp1.x > 0.0 && sp1.x < SZ_W as f32 && sp1.y > 0.0 && sp1.y < SZ_H as f32 {
             canvas
                 .fill_rect(Rect::new(
-                    SCALE * sp1.x,
-                    SCALE * sp1.y,
+                    SCALE * sp1.x as i32,
+                    SCALE * sp1.y as i32,
                     SCALE as u32,
                     SCALE as u32,
                 ))
@@ -149,11 +153,11 @@ impl Game {
         }
         // println!("world: {wp1:?}, {wp2:?}");
         // println!("screen: {sp1:?}, {sp2:?}");
-        if sp2.x > 0 && sp2.x < SZ_W && sp2.y > 0 && sp2.y < SZ_H {
+        if sp2.x > 0.0 && sp2.x < SZ_W as f32 && sp2.y > 0.0 && sp2.y < SZ_H as f32 {
             canvas
                 .fill_rect(Rect::new(
-                    SCALE * sp2.x,
-                    SCALE * sp2.y,
+                    SCALE * sp2.x as i32,
+                    SCALE * sp2.y as i32,
                     SCALE as u32,
                     SCALE as u32,
                 ))
