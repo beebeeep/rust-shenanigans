@@ -14,9 +14,18 @@ use std::time::{Duration, Instant};
 const SZ_W: i32 = 320;
 const SZ_H: i32 = 240;
 const SCALE: i32 = 4;
-const PLAYER_SPEED: f32 = 10.0;
+const PLAYER_SPEED: f32 = 1.0;
 const PLAYER_ROT_SPEED: i32 = 1;
 const FPS: u64 = 20;
+
+const K_UP: u32 = 1;
+const K_DOWN: u32 = 2;
+const K_LEFT: u32 = 4;
+const K_RIGHT: u32 = 8;
+const K_TURNLEFT: u32 = 16;
+const K_TURNRIGHT: u32 = 32;
+const K_LOOKUP: u32 = 64;
+const K_LOOKDOWN: u32 = 128;
 
 lazy_static! {
     static ref COS: Vec<f32> = {
@@ -29,17 +38,6 @@ lazy_static! {
             .map(|x| f32::sin((x as f32 / 180.0) * f32::consts::PI))
             .collect()
     };
-}
-
-enum KeyInput {
-    Up,
-    Down,
-    Left,
-    Right,
-    TurnLeft,
-    TurnRight,
-    LookUp,
-    LookDown,
 }
 
 #[derive(Debug)]
@@ -81,6 +79,7 @@ struct Player {
 
 struct Game {
     tick: u64,
+    pressed_keys: u32,
     player: Player,
 }
 
@@ -88,6 +87,7 @@ impl Game {
     fn new() -> Self {
         Self {
             tick: 0,
+            pressed_keys: 0,
             player: Player {
                 pos: Point::new(70, -110, 0),
                 dir_h: 0,
@@ -98,47 +98,35 @@ impl Game {
 
     fn progress(&mut self) {
         self.tick += 1;
-    }
 
-    fn process_input(&mut self, input: KeyInput) {
         let (dx, dy) = (
-            PLAYER_SPEED * SIN[self.player.dir_h as usize],
-            PLAYER_SPEED * COS[self.player.dir_h as usize],
+            SIN[self.player.dir_h as usize],
+            COS[self.player.dir_h as usize],
         );
-        match input {
-            KeyInput::Up => {
-                self.player.pos.x += dx as i32;
-                self.player.pos.y += dy as i32;
-            }
-            KeyInput::Down => {
-                self.player.pos.x -= dx as i32;
-                self.player.pos.y -= dy as i32;
-            }
-            KeyInput::Left => {
-                self.player.pos.x -= dy as i32;
-                self.player.pos.y -= dx as i32;
-            }
-            KeyInput::Right => {
-                self.player.pos.x += dy as i32;
-                self.player.pos.y += dx as i32;
-            }
-            KeyInput::TurnLeft => {
-                self.player.dir_h = (self.player.dir_h + PLAYER_ROT_SPEED).rem_euclid(360)
-            }
-            KeyInput::TurnRight => {
-                self.player.dir_h = (self.player.dir_h - PLAYER_ROT_SPEED).rem_euclid(360)
-            }
-            KeyInput::LookUp => {
-                self.player.dir_v = (self.player.dir_v + PLAYER_ROT_SPEED).rem_euclid(360)
-            }
-            KeyInput::LookDown => {
-                self.player.dir_v = (self.player.dir_v - PLAYER_ROT_SPEED).rem_euclid(360)
-            }
+        if self.pressed_keys & K_UP != 0 {
+            self.player.pos.y += (PLAYER_SPEED * dy) as i32;
         }
-        println!(
-            "player pos: {:?}, rot: hor {} vert {} {dx} {dy}",
-            self.player.pos, self.player.dir_h, self.player.dir_v
-        );
+        if self.pressed_keys & K_DOWN != 0 {
+            self.player.pos.y -= (PLAYER_SPEED * dy) as i32;
+        }
+        if self.pressed_keys & K_LEFT != 0 {
+            self.player.pos.x -= (PLAYER_SPEED * dx) as i32;
+        }
+        if self.pressed_keys & K_RIGHT != 0 {
+            self.player.pos.x += (PLAYER_SPEED * dx) as i32;
+        }
+        if self.pressed_keys & K_TURNLEFT != 0 {
+            self.player.dir_h = (self.player.dir_h + PLAYER_ROT_SPEED).rem_euclid(360);
+        }
+        if self.pressed_keys & K_TURNRIGHT != 0 {
+            self.player.dir_h = (self.player.dir_h - PLAYER_ROT_SPEED).rem_euclid(360);
+        }
+        if self.pressed_keys & K_LOOKUP != 0 {
+            self.player.dir_v = (self.player.dir_v + PLAYER_ROT_SPEED).rem_euclid(360);
+        }
+        if self.pressed_keys & K_LOOKDOWN != 0 {
+            self.player.dir_v = (self.player.dir_v - PLAYER_ROT_SPEED).rem_euclid(360);
+        }
     }
 
     fn render(&self, canvas: &mut Canvas<Window>) {
@@ -172,6 +160,34 @@ impl Game {
                 .unwrap();
         }
     }
+
+    fn key_down(&mut self, k: Keycode) {
+        match k {
+            Keycode::W => self.pressed_keys |= K_UP,
+            Keycode::S => self.pressed_keys |= K_DOWN,
+            Keycode::A => self.pressed_keys |= K_LEFT,
+            Keycode::D => self.pressed_keys |= K_RIGHT,
+            Keycode::H => self.pressed_keys |= K_TURNLEFT,
+            Keycode::L => self.pressed_keys |= K_TURNRIGHT,
+            Keycode::J => self.pressed_keys |= K_LOOKDOWN,
+            Keycode::K => self.pressed_keys |= K_LOOKUP,
+            _ => {}
+        }
+    }
+
+    fn key_up(&mut self, k: Keycode) {
+        match k {
+            Keycode::W => self.pressed_keys &= !K_UP,
+            Keycode::S => self.pressed_keys &= !K_DOWN,
+            Keycode::A => self.pressed_keys &= !K_LEFT,
+            Keycode::D => self.pressed_keys &= !K_RIGHT,
+            Keycode::H => self.pressed_keys &= !K_TURNLEFT,
+            Keycode::L => self.pressed_keys &= !K_TURNRIGHT,
+            Keycode::J => self.pressed_keys &= !K_LOOKDOWN,
+            Keycode::K => self.pressed_keys &= !K_LOOKUP,
+            _ => {}
+        }
+    }
 }
 
 fn main() {
@@ -199,22 +215,12 @@ fn main() {
                     keycode: Some(Keycode::Escape),
                     ..
                 } => break 'running,
-                Event::KeyUp {
-                    keycode: Some(k), ..
-                } => todo!(),
                 Event::KeyDown {
                     keycode: Some(k), ..
-                } => match k {
-                    Keycode::W => game.process_input(KeyInput::Up),
-                    Keycode::S => game.process_input(KeyInput::Down),
-                    Keycode::A => game.process_input(KeyInput::Left),
-                    Keycode::D => game.process_input(KeyInput::Right),
-                    Keycode::H => game.process_input(KeyInput::TurnLeft),
-                    Keycode::L => game.process_input(KeyInput::TurnRight),
-                    Keycode::J => game.process_input(KeyInput::LookDown),
-                    Keycode::K => game.process_input(KeyInput::LookUp),
-                    _ => {}
-                },
+                } => game.key_down(k),
+                Event::KeyUp {
+                    keycode: Some(k), ..
+                } => game.key_up(k),
                 _ => {}
             }
         }
