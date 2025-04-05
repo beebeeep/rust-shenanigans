@@ -18,14 +18,16 @@ const PLAYER_SPEED: f32 = 4.0;
 const PLAYER_ROT_SPEED: i32 = 1;
 const FPS: u64 = 20;
 
-const K_UP: u32 = 1;
-const K_DOWN: u32 = 2;
+const K_FWD: u32 = 1;
+const K_BACK: u32 = 2;
 const K_LEFT: u32 = 4;
 const K_RIGHT: u32 = 8;
 const K_TURNLEFT: u32 = 16;
 const K_TURNRIGHT: u32 = 32;
 const K_LOOKUP: u32 = 64;
 const K_LOOKDOWN: u32 = 128;
+const K_UP: u32 = 256;
+const K_DOWN: u32 = 512;
 
 lazy_static! {
     static ref COS: Vec<f32> = {
@@ -55,15 +57,16 @@ impl Point {
     fn to_screen(&self, fov: i32) -> Self {
         Self {
             x: fov as f32 * self.x / self.y + (SZ_W as f32 / 2.0),
-            y: fov as f32 * self.z / self.y + (SZ_H as f32 / 2.0),
+            y: -fov as f32 * self.z / self.y + (SZ_H as f32 / 2.0),
             z: 0.0,
         }
     }
 
     fn to_world(&self, p: &Player) -> Self {
+        let a = p.dir_h as usize;
         Self {
-            x: (self.x as f32 * COS[p.dir_h as usize] - self.y as f32 * SIN[p.dir_h as usize]),
-            y: (self.x as f32 * SIN[p.dir_h as usize] + self.y as f32 * COS[p.dir_h as usize]),
+            x: (self.x * COS[a] - self.y * SIN[a]),
+            y: (self.x * SIN[a] + self.y * COS[a]),
             z: 0.0 - p.pos.z + (p.dir_v as f32 * self.y) / 32.0,
         }
     }
@@ -87,7 +90,7 @@ impl Game {
             tick: 0,
             pressed_keys: 0,
             player: Player {
-                pos: Point::new(70.0, -110.0, 0.0),
+                pos: Point::new(70.0, -110.0, 20.0),
                 dir_h: 0,
                 dir_v: 0,
             },
@@ -101,11 +104,11 @@ impl Game {
             PLAYER_SPEED * SIN[self.player.dir_h as usize],
             PLAYER_SPEED * COS[self.player.dir_h as usize],
         );
-        if self.pressed_keys & K_UP != 0 {
+        if self.pressed_keys & K_FWD != 0 {
             self.player.pos.x += dx;
             self.player.pos.y += dy;
         }
-        if self.pressed_keys & K_DOWN != 0 {
+        if self.pressed_keys & K_BACK != 0 {
             self.player.pos.x -= dx;
             self.player.pos.y -= dy;
         }
@@ -118,17 +121,25 @@ impl Game {
             self.player.pos.x += dy;
             self.player.pos.y += dx;
         }
-        if self.pressed_keys & K_TURNLEFT != 0 {
-            self.player.dir_h = (self.player.dir_h + PLAYER_ROT_SPEED).rem_euclid(360);
+        if self.pressed_keys & K_UP != 0 {
+            self.player.pos.z += PLAYER_SPEED as f32;
         }
-        if self.pressed_keys & K_TURNRIGHT != 0 {
+        if self.pressed_keys & K_DOWN != 0 {
+            self.player.pos.z -= PLAYER_SPEED as f32;
+        }
+        if self.pressed_keys & K_TURNLEFT != 0 {
             self.player.dir_h = (self.player.dir_h - PLAYER_ROT_SPEED).rem_euclid(360);
         }
+        if self.pressed_keys & K_TURNRIGHT != 0 {
+            self.player.dir_h = (self.player.dir_h + PLAYER_ROT_SPEED).rem_euclid(360);
+        }
         if self.pressed_keys & K_LOOKUP != 0 {
-            self.player.dir_v = (self.player.dir_v + PLAYER_ROT_SPEED).rem_euclid(360);
+            // self.player.dir_v = (self.player.dir_v - PLAYER_ROT_SPEED).rem_euclid(360);
+            self.player.dir_v = self.player.dir_v - PLAYER_ROT_SPEED;
         }
         if self.pressed_keys & K_LOOKDOWN != 0 {
-            self.player.dir_v = (self.player.dir_v - PLAYER_ROT_SPEED).rem_euclid(360);
+            // self.player.dir_v = (self.player.dir_v + PLAYER_ROT_SPEED).rem_euclid(360);
+            self.player.dir_v = self.player.dir_v + PLAYER_ROT_SPEED;
         }
         println!("pl {} {:?}", self.pressed_keys, self.player.pos);
     }
@@ -151,8 +162,9 @@ impl Game {
                 ))
                 .unwrap();
         }
-        // println!("world: {wp1:?}, {wp2:?}");
-        // println!("screen: {sp1:?}, {sp2:?}");
+        println!("world: {wp1:?}, {wp2:?}");
+        println!("screeen: {sp1:?}, {sp2:?}");
+        println!("player h: {}, v: {}", self.player.dir_h, self.player.dir_v);
         if sp2.x > 0.0 && sp2.x < SZ_W as f32 && sp2.y > 0.0 && sp2.y < SZ_H as f32 {
             canvas
                 .fill_rect(Rect::new(
@@ -167,10 +179,12 @@ impl Game {
 
     fn key_down(&mut self, k: Keycode) {
         match k {
-            Keycode::W => self.pressed_keys |= K_UP,
-            Keycode::S => self.pressed_keys |= K_DOWN,
+            Keycode::W => self.pressed_keys |= K_FWD,
+            Keycode::S => self.pressed_keys |= K_BACK,
             Keycode::A => self.pressed_keys |= K_LEFT,
             Keycode::D => self.pressed_keys |= K_RIGHT,
+            Keycode::Q => self.pressed_keys |= K_UP,
+            Keycode::Z => self.pressed_keys |= K_DOWN,
             Keycode::H => self.pressed_keys |= K_TURNLEFT,
             Keycode::L => self.pressed_keys |= K_TURNRIGHT,
             Keycode::J => self.pressed_keys |= K_LOOKDOWN,
@@ -181,10 +195,12 @@ impl Game {
 
     fn key_up(&mut self, k: Keycode) {
         match k {
-            Keycode::W => self.pressed_keys &= !K_UP,
-            Keycode::S => self.pressed_keys &= !K_DOWN,
+            Keycode::W => self.pressed_keys &= !K_FWD,
+            Keycode::S => self.pressed_keys &= !K_BACK,
             Keycode::A => self.pressed_keys &= !K_LEFT,
             Keycode::D => self.pressed_keys &= !K_RIGHT,
+            Keycode::Q => self.pressed_keys &= !K_UP,
+            Keycode::Z => self.pressed_keys &= !K_DOWN,
             Keycode::H => self.pressed_keys &= !K_TURNLEFT,
             Keycode::L => self.pressed_keys &= !K_TURNRIGHT,
             Keycode::J => self.pressed_keys &= !K_LOOKDOWN,
