@@ -191,7 +191,15 @@ fn main() {
         .input_grabbed()
         .vulkan()
         .build()
-        .unwrap();
+        .unwrap_or_else(|_| {
+            video
+                .window("roids", SZ_W as u32, SZ_H as u32)
+                .position_centered()
+                .input_grabbed()
+                .opengl()
+                .build()
+                .unwrap()
+        });
     let mut canvas = window.into_canvas().build().unwrap();
     canvas.clear();
     canvas.present();
