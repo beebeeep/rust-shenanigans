@@ -1,5 +1,5 @@
 use core::{f32::consts::PI, fmt};
-use rand;
+use rand::{self, seq::IndexedRandom};
 use sdl2::{
     event::Event,
     gfx::primitives::DrawRenderer,
@@ -18,7 +18,7 @@ const PLAYER_SPEED: f32 = 0.5;
 const PLAYER_ROT_SPEED: f32 = 0.1;
 const FPS: u64 = 60;
 const BODY_DENSITY: f32 = 1.0;
-const GRAVITY: f32 = 0.00001;
+const GRAVITY: f32 = 0.1;
 
 const K_FWD: u32 = 1;
 const K_BACK: u32 = 2;
@@ -28,12 +28,12 @@ const K_TURNLEFT: u32 = 16;
 const K_TURNRIGHT: u32 = 32;
 
 #[derive(Clone, Copy)]
-struct Point {
+struct Vec2 {
     x: f32,
     y: f32,
 }
 
-impl std::ops::Add for Point {
+impl std::ops::Add for Vec2 {
     type Output = Self;
     fn add(self, rhs: Self) -> Self {
         Self {
@@ -43,7 +43,7 @@ impl std::ops::Add for Point {
     }
 }
 
-impl std::ops::Sub for Point {
+impl std::ops::Sub for Vec2 {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self {
         Self {
@@ -53,7 +53,7 @@ impl std::ops::Sub for Point {
     }
 }
 
-impl std::ops::Mul<f32> for Point {
+impl std::ops::Mul<f32> for Vec2 {
     type Output = Self;
     fn mul(self, rhs: f32) -> Self::Output {
         Self {
@@ -63,27 +63,27 @@ impl std::ops::Mul<f32> for Point {
     }
 }
 
-impl fmt::Display for Point {
+impl fmt::Display for Vec2 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "({}, {})", self.x as i32, self.y as i32)
     }
 }
 
-impl Point {
+impl Vec2 {
     fn dist(&self, p: Self) -> f32 {
         f32::sqrt((self.x - p.x).powi(2) + (self.y - p.y).powi(2))
     }
 }
 
 struct Body {
-    center: Point,
-    points: Vec<Point>,
+    center: Vec2,
+    points: Vec<Vec2>,
     color: Color,
     mass: f32,
 }
 
 impl Body {
-    fn new(center: Point, size: f32, edges: usize) -> Self {
+    fn new(center: Vec2, size: f32, edges: usize) -> Self {
         let mut points = Vec::with_capacity(edges);
         let mut area = 0.0;
         let d = 2.0 * PI / edges as f32;
@@ -91,7 +91,7 @@ impl Body {
             let r_a = (rand::random::<f32>() - 0.5) * 0.5;
             let r_r = size * (rand::random::<f32>() - 0.5) * 0.9;
             let (s, c) = f32::sin_cos(i as f32 * d + d * r_a);
-            points.push(Point {
+            points.push(Vec2 {
                 x: (r_r + size) * c,
                 y: (r_r + size) * s,
             })
@@ -136,8 +136,8 @@ impl Body {
 }
 
 struct Player {
-    pos: Point,
-    speed: Point,
+    pos: Vec2,
+    speed: Vec2,
     dir: f32,
 }
 
@@ -146,7 +146,8 @@ struct Game {
     pressed_keys: u32,
     player: Player,
     bodies: Vec<Body>,
-    cursor: Point,
+    trajectory: Vec<Vec2>, // VecDeque will be more optimal here...
+    cursor: Vec2,
     paused: bool,
 }
 
@@ -156,15 +157,16 @@ impl Game {
             paused: false,
             tick: 0,
             pressed_keys: 0,
-            cursor: Point { x: 0.0, y: 0.0 },
-            bodies: vec![Body::new(Point { x: 400., y: 400. }, 50.0, 8)],
+            cursor: Vec2 { x: 0.0, y: 0.0 },
+            bodies: vec![Body::new(Vec2 { x: 400., y: 400. }, 50.0, 8)],
+            trajectory: vec![Vec2 { x: 0.0, y: 0.0 }; 100],
             player: Player {
-                pos: Point {
+                pos: Vec2 {
                     x: (SZ_W / 2) as f32,
                     y: (SZ_H / 2) as f32,
                 },
                 dir: 0.0,
-                speed: Point { x: 0.0, y: 0.0 },
+                speed: Vec2 { x: 0.0, y: 0.0 },
             },
         }
     }
@@ -194,38 +196,51 @@ impl Game {
         };
         self.player.dir -= speed * dd.signum();
 
+        (self.player.pos, self.player.speed) =
+            self.progress_player(&self.player.pos, &self.player.speed);
+        let (mut pos, mut speed) = (self.player.pos, self.player.speed);
+        for i in 0..self.trajectory.len() {
+            (pos, speed) = self.progress_player(&pos, &speed);
+            self.trajectory[i] = pos;
+        }
+    }
+
+    fn progress_player(&self, p: &Vec2, s: &Vec2) -> (Vec2, Vec2) {
+        let (mut pos, mut speed) = (*p, *s);
         // thrust
         let (dy, dx) = self.player.dir.sin_cos();
         if self.pressed_keys & K_FWD != 0 {
-            self.player.speed.x += PLAYER_SPEED * dx;
-            self.player.speed.y += PLAYER_SPEED * dy;
+            speed.x += PLAYER_SPEED * dx;
+            speed.y += PLAYER_SPEED * dy;
         }
         if self.pressed_keys & K_BACK != 0 {
-            self.player.speed.x -= PLAYER_SPEED * dx;
-            self.player.speed.y -= PLAYER_SPEED * dy;
+            speed.x -= PLAYER_SPEED * dx;
+            speed.y -= PLAYER_SPEED * dy;
         }
 
         //gravity
         for body in &self.bodies {
-            let gravity = (body.center - self.player.pos)
-                * (GRAVITY * body.mass / self.player.pos.dist(body.center));
-            self.player.speed = self.player.speed + gravity;
+            let gravity =
+                (body.center - pos) * (GRAVITY * body.mass / pos.dist(body.center).powi(3)); // 3rd power because of normalization of (body - pos)
+            speed = speed + gravity;
         }
 
-        self.player.pos.x += self.player.speed.x;
-        self.player.pos.y += self.player.speed.y;
-        if self.player.pos.x < 0. {
-            self.player.pos.x = SZ_W as f32
+        pos.x += speed.x;
+        pos.y += speed.y;
+        if pos.x < 0. {
+            pos.x = SZ_W as f32
         }
-        if self.player.pos.x > SZ_W as f32 {
-            self.player.pos.x = 0.
+        if pos.x > SZ_W as f32 {
+            pos.x = 0.
         }
-        if self.player.pos.y < 0. {
-            self.player.pos.y = SZ_H as f32
+        if pos.y < 0. {
+            pos.y = SZ_H as f32
         }
-        if self.player.pos.y > SZ_H as f32 {
-            self.player.pos.y = 0.
+        if pos.y > SZ_H as f32 {
+            pos.y = 0.
         }
+
+        (pos, speed)
     }
 
     fn show_debug(&self, canvas: &mut Canvas<Window>, font: &ttf::Font) {
@@ -277,6 +292,22 @@ impl Game {
 
         for body in &self.bodies {
             body.render(font, canvas);
+        }
+        // trajectory
+        for i in 0..self.trajectory.len() - 1 {
+            let (p1, p2) = (self.trajectory[i], self.trajectory[i + 1]);
+            if p1.dist(p2) > 10.0 {
+                continue;
+            }
+            canvas
+                .line(
+                    p1.x as i16,
+                    SZ_H as i16 - p1.y as i16,
+                    p2.x as i16,
+                    SZ_H as i16 - p2.y as i16,
+                    Color::GRAY,
+                )
+                .unwrap();
         }
         // player
         let (dy, dx) = self.player.dir.sin_cos();
@@ -350,7 +381,7 @@ fn display_text(
     text: &str,
     font: &ttf::Font,
     color: Color,
-    center: Point,
+    center: Vec2,
     canvas: &mut Canvas<Window>,
 ) -> Rect {
     let texture_creator = canvas.texture_creator();
