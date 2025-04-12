@@ -1,12 +1,12 @@
-use core::f32::consts::PI;
+use core::{f32::consts::PI, fmt};
 use sdl2::{
-    controller::MappingStatus,
     event::Event,
     gfx::primitives::DrawRenderer,
     keyboard::Keycode,
-    pixels::{self, Color},
+    pixels::Color,
     rect::Rect,
-    render::Canvas,
+    render::{Canvas, TextureQuery},
+    ttf,
     video::Window,
 };
 use std::time::{Duration, Instant};
@@ -33,6 +33,12 @@ struct Player {
     pos: Point,
     speed: Point,
     dir: f32,
+}
+
+impl fmt::Display for Point {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({}, {})", self.x as i32, self.y as i32)
+    }
 }
 
 struct Game {
@@ -62,6 +68,9 @@ impl Game {
     }
 
     fn progress(&mut self) {
+        if self.paused {
+            return;
+        }
         self.tick += 1;
 
         let (dx, dy) = (self.player.dir.cos(), self.player.dir.sin());
@@ -71,31 +80,17 @@ impl Game {
         );
 
         let mut dd = self.player.dir - dir_cur;
-        /*
         if dd > PI {
             dd -= PI * 2.0
         }
         if dd < -PI {
             dd += PI * 2.0
-        }*/
-        println!(
-            "player ({} {} {}) cursor ({} {} {}) diff {}",
-            self.player.pos.x,
-            self.player.pos.y,
-            self.player.dir * 180.0 / PI,
-            self.cursor.x,
-            self.cursor.y,
-            dir_cur * 180.0 / PI,
-            dd * 180.0 / PI,
-        );
-        if self.paused {
-            return;
         }
         if dd < 0.0 {
-            self.player.dir += PLAYER_ROT_SPEED;
+            self.player.dir += dd.abs() * PLAYER_ROT_SPEED;
         }
         if dd > 0.0 {
-            self.player.dir -= PLAYER_ROT_SPEED;
+            self.player.dir -= dd.abs() * PLAYER_ROT_SPEED;
         }
 
         if self.pressed_keys & K_FWD != 0 {
@@ -123,15 +118,59 @@ impl Game {
         }
     }
 
-    fn render(&self, canvas: &mut Canvas<Window>) {
+    fn show_debug(&self, canvas: &mut Canvas<Window>, font: &ttf::Font) {
+        let dir_cur = f32::atan2(
+            self.cursor.y - self.player.pos.y,
+            self.cursor.x - self.player.pos.x,
+        );
+        let texture_creator = canvas.texture_creator();
+        let surf = font
+            .render(&format!(
+                "player {}@{:.0} cursor {}@{:.0}",
+                self.player.pos,
+                self.player.dir * 180.0 / PI,
+                self.cursor,
+                dir_cur * 180.0 / PI
+            ))
+            .blended(Color::GREEN)
+            .unwrap();
+        let line1_tex = texture_creator.create_texture_from_surface(surf).unwrap();
+        let surf = font
+            .render(&format!(
+                "cursor {}@{:.0}",
+                self.cursor,
+                dir_cur * 180.0 / PI
+            ))
+            .blended(Color::GREEN)
+            .unwrap();
+        let line2_tex = texture_creator.create_texture_from_surface(surf).unwrap();
+        let TextureQuery {
+            width: w1,
+            height: h1,
+            ..
+        } = line1_tex.query();
+        let TextureQuery {
+            width: w2,
+            height: h2,
+            ..
+        } = line2_tex.query();
+        canvas
+            .copy(&line1_tex, None, Rect::new(0, 0, w1, h1))
+            .unwrap();
+        canvas
+            .copy(&line2_tex, None, Rect::new(0, h1 as i32, w2, h2))
+            .unwrap();
+    }
+
+    fn render(&self, canvas: &mut Canvas<Window>, font: &ttf::Font) {
         canvas.set_draw_color(Color::RED);
         let (dx, dy) = (self.player.dir.cos(), self.player.dir.sin());
         canvas
             .line(
                 self.player.pos.x as i16,
                 SZ_H as i16 - self.player.pos.y as i16,
-                self.player.pos.x as i16 + (dx * 10.0) as i16,
-                SZ_H as i16 - (self.player.pos.y as i16 + (dy * 10.0) as i16),
+                self.player.pos.x as i16 + (dx * 30.0) as i16,
+                SZ_H as i16 - (self.player.pos.y as i16 + (dy * 30.0) as i16),
                 Color::GREEN,
             )
             .unwrap();
@@ -145,8 +184,15 @@ impl Game {
             .unwrap();
 
         canvas
-            .circle(self.cursor.x as i16, self.cursor.y as i16, 3, Color::GREY)
+            .circle(
+                self.cursor.x as i16,
+                SZ_H as i16 - self.cursor.y as i16,
+                3,
+                Color::GREY,
+            )
             .unwrap();
+
+        self.show_debug(canvas, font);
     }
 
     fn key_down(&mut self, k: Keycode) {
@@ -157,14 +203,18 @@ impl Game {
             Keycode::D => self.pressed_keys |= K_RIGHT,
             Keycode::H => self.pressed_keys |= K_TURNLEFT,
             Keycode::L => self.pressed_keys |= K_TURNRIGHT,
-            Keycode::SPACE => self.paused = !self.paused,
+            Keycode::P => self.paused = !self.paused,
+            Keycode::SPACE => {
+                self.player.speed.x = 0.;
+                self.player.speed.y = 0.;
+            }
             _ => {}
         }
     }
 
     fn set_cursor(&mut self, x: i32, y: i32) {
         self.cursor.x = x as f32;
-        self.cursor.y = y as f32;
+        self.cursor.y = (SZ_H - y) as f32; // convert from screen coords
     }
 
     fn key_up(&mut self, k: Keycode) {
@@ -191,19 +241,14 @@ fn main() {
         .input_grabbed()
         .vulkan()
         .build()
-        .unwrap_or_else(|_| {
-            video
-                .window("roids", SZ_W as u32, SZ_H as u32)
-                .position_centered()
-                .input_grabbed()
-                .opengl()
-                .build()
-                .unwrap()
-        });
+        .unwrap();
     let mut canvas = window.into_canvas().build().unwrap();
     canvas.clear();
     canvas.present();
     let mut event_pump = sdl_context.event_pump().unwrap();
+    let ttf_context = ttf::init().unwrap();
+    let mut font = ttf_context.load_font("font.ttf", 12).unwrap();
+    font.set_style(ttf::FontStyle::BOLD);
 
     let mut game = Game::new();
 
@@ -256,7 +301,7 @@ fn main() {
 
         let start = Instant::now();
         game.progress();
-        game.render(&mut canvas);
+        game.render(&mut canvas, &font);
         canvas.present();
 
         let elapsed = start - Instant::now();
