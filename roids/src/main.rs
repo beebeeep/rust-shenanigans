@@ -427,7 +427,7 @@ fn main() {
         game.render(&mut canvas, &font);
         canvas.present();
 
-        let elapsed = start - Instant::now();
+        let elapsed = Instant::now() - start;
         ::std::thread::sleep(fps - elapsed);
     }
 }
