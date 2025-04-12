@@ -1,4 +1,5 @@
 use core::{f32::consts::PI, fmt};
+use rand;
 use sdl2::{
     event::Event,
     gfx::primitives::DrawRenderer,
@@ -16,6 +17,8 @@ const SZ_H: i32 = 768;
 const PLAYER_SPEED: f32 = 0.5;
 const PLAYER_ROT_SPEED: f32 = 0.1;
 const FPS: u64 = 60;
+const BODY_DENSITY: f32 = 1.0;
+const GRAVITY: f32 = 0.00001;
 
 const K_FWD: u32 = 1;
 const K_BACK: u32 = 2;
@@ -24,15 +27,40 @@ const K_RIGHT: u32 = 8;
 const K_TURNLEFT: u32 = 16;
 const K_TURNRIGHT: u32 = 32;
 
+#[derive(Clone, Copy)]
 struct Point {
     x: f32,
     y: f32,
 }
 
-struct Player {
-    pos: Point,
-    speed: Point,
-    dir: f32,
+impl std::ops::Add for Point {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self {
+        Self {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+        }
+    }
+}
+
+impl std::ops::Sub for Point {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self {
+        Self {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
+        }
+    }
+}
+
+impl std::ops::Mul<f32> for Point {
+    type Output = Self;
+    fn mul(self, rhs: f32) -> Self::Output {
+        Self {
+            x: self.x * rhs,
+            y: self.y * rhs,
+        }
+    }
 }
 
 impl fmt::Display for Point {
@@ -41,10 +69,83 @@ impl fmt::Display for Point {
     }
 }
 
+impl Point {
+    fn dist(&self, p: Self) -> f32 {
+        f32::sqrt((self.x - p.x).powi(2) + (self.y - p.y).powi(2))
+    }
+}
+
+struct Body {
+    center: Point,
+    points: Vec<Point>,
+    color: Color,
+    mass: f32,
+}
+
+impl Body {
+    fn new(center: Point, size: f32, edges: usize) -> Self {
+        let mut points = Vec::with_capacity(edges);
+        let mut area = 0.0;
+        let d = 2.0 * PI / edges as f32;
+        for i in 0..edges {
+            let r_a = (rand::random::<f32>() - 0.5) * 0.5;
+            let r_r = size * (rand::random::<f32>() - 0.5) * 0.9;
+            let (s, c) = f32::sin_cos(i as f32 * d + d * r_a);
+            points.push(Point {
+                x: (r_r + size) * c,
+                y: (r_r + size) * s,
+            })
+        }
+        for i in 0..points.len() {
+            let (p1, p2) = (points[i], points[(i + 1) % points.len()]);
+            area += 0.5 * (p1.x * p2.y - p2.x * p1.y).abs();
+        }
+
+        Self {
+            center,
+            points,
+            mass: BODY_DENSITY * area,
+            color: Color::YELLOW,
+        }
+    }
+
+    fn render(&self, font: &ttf::Font, canvas: &mut Canvas<Window>) {
+        for i in 0..self.points.len() {
+            let (p1, p2) = (
+                self.center + self.points[i],
+                self.center + self.points[(i + 1) % self.points.len()],
+            );
+            canvas
+                .line(
+                    p1.x as i16,
+                    SZ_H as i16 - p1.y as i16,
+                    p2.x as i16,
+                    SZ_H as i16 - p2.y as i16,
+                    self.color,
+                )
+                .unwrap();
+        }
+        display_text(
+            &format!("{:.1}", self.mass),
+            font,
+            self.color,
+            self.center,
+            canvas,
+        );
+    }
+}
+
+struct Player {
+    pos: Point,
+    speed: Point,
+    dir: f32,
+}
+
 struct Game {
     tick: u64,
     pressed_keys: u32,
     player: Player,
+    bodies: Vec<Body>,
     cursor: Point,
     paused: bool,
 }
@@ -56,6 +157,7 @@ impl Game {
             tick: 0,
             pressed_keys: 0,
             cursor: Point { x: 0.0, y: 0.0 },
+            bodies: vec![Body::new(Point { x: 400., y: 400. }, 50.0, 8)],
             player: Player {
                 pos: Point {
                     x: (SZ_W / 2) as f32,
@@ -73,12 +175,11 @@ impl Game {
         }
         self.tick += 1;
 
-        let (dx, dy) = (self.player.dir.cos(), self.player.dir.sin());
+        // rotate player towards cursor
         let dir_cur = f32::atan2(
             self.cursor.y - self.player.pos.y,
             self.cursor.x - self.player.pos.x,
         );
-
         let mut dd = self.player.dir - dir_cur;
         if dd > PI {
             dd -= PI * 2.0
@@ -86,13 +187,15 @@ impl Game {
         if dd < -PI {
             dd += PI * 2.0
         }
-        if dd < 0.0 {
-            self.player.dir += dd.abs() * PLAYER_ROT_SPEED;
-        }
-        if dd > 0.0 {
-            self.player.dir -= dd.abs() * PLAYER_ROT_SPEED;
-        }
+        let speed = if dd.abs() > 1.0 {
+            PLAYER_ROT_SPEED
+        } else {
+            dd.abs() * PLAYER_ROT_SPEED
+        };
+        self.player.dir -= speed * dd.signum();
 
+        // thrust
+        let (dy, dx) = self.player.dir.sin_cos();
         if self.pressed_keys & K_FWD != 0 {
             self.player.speed.x += PLAYER_SPEED * dx;
             self.player.speed.y += PLAYER_SPEED * dy;
@@ -100,6 +203,13 @@ impl Game {
         if self.pressed_keys & K_BACK != 0 {
             self.player.speed.x -= PLAYER_SPEED * dx;
             self.player.speed.y -= PLAYER_SPEED * dy;
+        }
+
+        //gravity
+        for body in &self.bodies {
+            let gravity = (body.center - self.player.pos)
+                * (GRAVITY * body.mass / self.player.pos.dist(body.center));
+            self.player.speed = self.player.speed + gravity;
         }
 
         self.player.pos.x += self.player.speed.x;
@@ -164,7 +274,12 @@ impl Game {
 
     fn render(&self, canvas: &mut Canvas<Window>, font: &ttf::Font) {
         canvas.set_draw_color(Color::RED);
-        let (dx, dy) = (self.player.dir.cos(), self.player.dir.sin());
+
+        for body in &self.bodies {
+            body.render(font, canvas);
+        }
+        // player
+        let (dy, dx) = self.player.dir.sin_cos();
         canvas
             .line(
                 self.player.pos.x as i16,
@@ -183,6 +298,7 @@ impl Game {
             )
             .unwrap();
 
+        // cursor
         canvas
             .circle(
                 self.cursor.x as i16,
@@ -228,6 +344,27 @@ impl Game {
             _ => {}
         }
     }
+}
+
+fn display_text(
+    text: &str,
+    font: &ttf::Font,
+    color: Color,
+    center: Point,
+    canvas: &mut Canvas<Window>,
+) -> Rect {
+    let texture_creator = canvas.texture_creator();
+    let surf = font.render(text).blended(color).unwrap();
+    let texture = texture_creator.create_texture_from_surface(surf).unwrap();
+    let TextureQuery { width, height, .. } = texture.query();
+    let r = Rect::new(
+        center.x as i32 - width as i32 / 2,
+        SZ_H - center.y as i32 - height as i32 / 2,
+        width,
+        height,
+    );
+    canvas.copy(&texture, None, r).unwrap();
+    return r;
 }
 
 fn main() {
