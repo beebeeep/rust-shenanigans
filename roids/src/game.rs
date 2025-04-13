@@ -9,6 +9,7 @@ use sdl2::{
     ttf,
     video::Window,
 };
+
 struct Player {
     pos: Vec2,
     speed: Vec2,
@@ -19,6 +20,7 @@ pub struct Game {
     tick: u64,
     pressed_keys: u32,
     player: Player,
+    camera: Vec2, // position of bottom-left corner of viewport
     bodies: Vec<Body>,
     trajectory: Vec<Vec2>, // VecDeque will be more optimal here...
     cursor: Vec2,
@@ -32,6 +34,7 @@ impl Game {
             tick: 0,
             pressed_keys: 0,
             cursor: Vec2 { x: 0.0, y: 0.0 },
+            camera: Vec2 { x: 0.0, y: 0.0 },
             bodies: vec![Body::new(Vec2 { x: 400., y: 400. }, 50.0, 8)],
             trajectory: vec![Vec2 { x: 0.0, y: 0.0 }; 100],
             player: Player {
@@ -50,6 +53,7 @@ impl Game {
             return;
         }
         self.tick += 1;
+        self.camera.x += 1.0;
 
         // rotate player towards cursor
         let dir_cur = f32::atan2(
@@ -70,9 +74,12 @@ impl Game {
         };
         self.player.dir -= speed * dd.signum();
 
+        // calculate new player position
         (self.player.pos, self.player.speed) =
             self.progress_player(&self.player.pos, &self.player.speed);
         let (mut pos, mut speed) = (self.player.pos, self.player.speed);
+
+        // calculate future trajectory
         for i in 0..self.trajectory.len() {
             (pos, speed) = self.progress_player(&pos, &speed);
             self.trajectory[i] = pos;
@@ -165,52 +172,50 @@ impl Game {
         canvas.set_draw_color(Color::RED);
 
         for body in &self.bodies {
-            body.render(font, canvas);
+            body.render(&self.camera, font, canvas);
         }
         // trajectory
         for i in 0..self.trajectory.len() - 1 {
-            let (p1, p2) = (self.trajectory[i], self.trajectory[i + 1]);
+            let (p1, p2) = (
+                self.trajectory[i].to_screen(&self.camera),
+                self.trajectory[i + 1].to_screen(&self.camera),
+            );
             if p1.dist(p2) > 10.0 {
                 continue;
             }
             canvas
                 .line(
                     p1.x as i16,
-                    SZ_H as i16 - p1.y as i16,
+                    p1.y as i16,
                     p2.x as i16,
-                    SZ_H as i16 - p2.y as i16,
+                    p2.y as i16,
                     Color::GRAY,
                 )
                 .unwrap();
         }
         // player
-        let (dy, dx) = self.player.dir.sin_cos();
+        let d = Vec2::from(self.player.dir);
+        let (p1, p2) = (
+            self.player.pos.to_screen(&self.camera),
+            (self.player.pos + d * 30.0).to_screen(&self.camera),
+        );
         canvas
             .line(
-                self.player.pos.x as i16,
-                SZ_H as i16 - self.player.pos.y as i16,
-                self.player.pos.x as i16 + (dx * 30.0) as i16,
-                SZ_H as i16 - (self.player.pos.y as i16 + (dy * 30.0) as i16),
+                p1.x as i16,
+                p1.y as i16,
+                p2.x as i16,
+                p2.y as i16,
                 Color::GREEN,
             )
             .unwrap();
         canvas
-            .filled_circle(
-                self.player.pos.x as i16,
-                SZ_H as i16 - self.player.pos.y as i16,
-                5,
-                Color::RED,
-            )
+            .filled_circle(p1.x as i16, p1.y as i16, 5, Color::RED)
             .unwrap();
 
+        let c = self.cursor.to_screen(&self.camera);
         // cursor
         canvas
-            .circle(
-                self.cursor.x as i16,
-                SZ_H as i16 - self.cursor.y as i16,
-                3,
-                Color::GREY,
-            )
+            .circle(c.x as i16, c.y as i16, 3, Color::GREY)
             .unwrap();
 
         self.show_debug(canvas, font);

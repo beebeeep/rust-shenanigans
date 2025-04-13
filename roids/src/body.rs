@@ -43,18 +43,18 @@ impl Body {
         }
     }
 
-    pub(crate) fn render(&self, font: &ttf::Font, canvas: &mut Canvas<Window>) {
+    pub(crate) fn render(&self, camera: &Vec2, font: &ttf::Font, canvas: &mut Canvas<Window>) {
         for i in 0..self.points.len() {
             let (p1, p2) = (
-                self.center + self.points[i],
-                self.center + self.points[(i + 1) % self.points.len()],
+                (self.center + self.points[i]).to_screen(camera),
+                (self.center + self.points[(i + 1) % self.points.len()]).to_screen(camera),
             );
             canvas
                 .line(
                     p1.x as i16,
-                    SZ_H as i16 - p1.y as i16,
+                    p1.y as i16,
                     p2.x as i16,
-                    SZ_H as i16 - p2.y as i16,
+                    p2.y as i16,
                     self.color,
                 )
                 .unwrap();
