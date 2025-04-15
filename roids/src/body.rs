@@ -63,7 +63,7 @@ impl Body {
             &format!("{:.1}", self.mass),
             font,
             self.color,
-            self.center,
+            self.center.to_screen(camera),
             canvas,
         );
     }

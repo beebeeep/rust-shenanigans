@@ -48,6 +48,10 @@ impl Vec2 {
             y: SZ_H as f32 - (self.y - camera.y),
         }
     }
+
+    pub(crate) fn len(&self) -> f32 {
+        f32::sqrt(self.x * self.x + self.y * self.y)
+    }
 }
 
 impl From<(f32, f32)> for Vec2 {

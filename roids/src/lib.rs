@@ -39,7 +39,7 @@ pub(crate) fn display_text(
     let TextureQuery { width, height, .. } = texture.query();
     let r = Rect::new(
         center.x as i32 - width as i32 / 2,
-        SZ_H - center.y as i32 - height as i32 / 2,
+        center.y as i32 + height as i32 / 2,
         width,
         height,
     );

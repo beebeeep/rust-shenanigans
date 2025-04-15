@@ -9,6 +9,8 @@ use sdl2::{
     ttf,
     video::Window,
 };
+use std::time;
+use std::time::Instant;
 
 struct Player {
     pos: Vec2,
@@ -36,6 +38,7 @@ impl Game {
             cursor: Vec2 { x: 0.0, y: 0.0 },
             camera: Vec2 { x: 0.0, y: 0.0 },
             bodies: vec![Body::new(Vec2 { x: 400., y: 400. }, 50.0, 8)],
+            // bodies: Vec::with_capacity(0),
             trajectory: vec![Vec2 { x: 0.0, y: 0.0 }; 100],
             player: Player {
                 pos: Vec2 {
@@ -53,13 +56,11 @@ impl Game {
             return;
         }
         self.tick += 1;
-        self.camera.x += 1.0;
+        // self.camera.x += 1.0;
 
         // rotate player towards cursor
-        let dir_cur = f32::atan2(
-            self.cursor.y - self.player.pos.y,
-            self.cursor.x - self.player.pos.x,
-        );
+        let vec_cur = self.cursor - self.player.pos.to_screen(&self.camera);
+        let dir_cur = f32::atan2(vec_cur.y, vec_cur.x);
         let mut dd = self.player.dir - dir_cur;
         if dd > PI {
             dd -= PI * 2.0
@@ -73,6 +74,25 @@ impl Game {
             dd.abs() * PLAYER_ROT_SPEED
         };
         self.player.dir -= speed * dd.signum();
+
+        // pan camera to player if it goes outside of central area of screen
+        let center = Vec2 {
+            x: SZ_W as f32 / 2.0,
+            y: SZ_H as f32 / 2.0,
+        };
+        let offscreen = center - self.player.pos.to_screen(&self.camera);
+        println!(
+            "{} camera: {}, player: {}, dx: {} dy: {}",
+            self.tick, self.camera, self.player.pos, offscreen.x, offscreen.y
+        );
+        self.camera.x -= 0.01 * offscreen.len() * offscreen.x;
+        self.camera.y += 0.01 * offscreen.len() * offscreen.y;
+        /*
+        if offscreen.x > SZ_H as f32 / 3.0 || offscreen.y > SZ_W as f32 / 3.0 {
+
+
+        }
+        */
 
         // calculate new player position
         (self.player.pos, self.player.speed) =
@@ -108,6 +128,8 @@ impl Game {
 
         pos.x += speed.x;
         pos.y += speed.y;
+
+        /*
         if pos.x < 0. {
             pos.x = SZ_W as f32
         }
@@ -120,15 +142,14 @@ impl Game {
         if pos.y > SZ_H as f32 {
             pos.y = 0.
         }
+        */
 
         (pos, speed)
     }
 
     fn show_debug(&self, canvas: &mut Canvas<Window>, font: &ttf::Font) {
-        let dir_cur = f32::atan2(
-            self.cursor.y - self.player.pos.y,
-            self.cursor.x - self.player.pos.x,
-        );
+        let vec_cur = self.cursor - self.player.pos;
+        let dir_cur = f32::atan2(vec_cur.y, vec_cur.x);
         let texture_creator = canvas.texture_creator();
         let surf = font
             .render(&format!(
@@ -212,10 +233,14 @@ impl Game {
             .filled_circle(p1.x as i16, p1.y as i16, 5, Color::RED)
             .unwrap();
 
-        let c = self.cursor.to_screen(&self.camera);
         // cursor
         canvas
-            .circle(c.x as i16, c.y as i16, 3, Color::GREY)
+            .circle(
+                self.cursor.x as i16,
+                SZ_H as i16 - self.cursor.y as i16,
+                3,
+                Color::WHITE,
+            )
             .unwrap();
 
         self.show_debug(canvas, font);
