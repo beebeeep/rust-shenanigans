@@ -148,7 +148,7 @@ impl Game {
     }
 
     fn show_debug(&self, canvas: &mut Canvas<Window>, font: &ttf::Font) {
-        let vec_cur = self.cursor - self.player.pos;
+        let vec_cur = self.cursor - self.player.pos.to_screen(&self.camera);
         let dir_cur = f32::atan2(vec_cur.y, vec_cur.x);
         let texture_creator = canvas.texture_creator();
         let surf = font
