@@ -74,6 +74,7 @@ impl Game {
         self.player.dir -= speed * dd.signum();
 
         // pan camera to player if it goes outside of central area of screen
+        // TODO: just use player speed
         let center = Vec2 {
             x: SZ_W as f32 / 2.0,
             y: SZ_H as f32 / 2.0,
