@@ -9,8 +9,6 @@ use sdl2::{
     ttf,
     video::Window,
 };
-use std::time;
-use std::time::Instant;
 
 struct Player {
     pos: Vec2,
@@ -150,43 +148,33 @@ impl Game {
     fn show_debug(&self, canvas: &mut Canvas<Window>, font: &ttf::Font) {
         let vec_cur = self.cursor - self.player.pos.to_screen(&self.camera);
         let dir_cur = f32::atan2(vec_cur.y, vec_cur.x);
-        let texture_creator = canvas.texture_creator();
-        let surf = font
-            .render(&format!(
-                "player {}@{:.0} cursor {}@{:.0}",
+        let l1 = display_text(
+            &format!(
+                "player {}@{:.0}, speed {:.1} {:?}",
                 self.player.pos,
-                self.player.dir * 180.0 / PI,
-                self.cursor,
-                dir_cur * 180.0 / PI
-            ))
-            .blended(Color::GREEN)
-            .unwrap();
-        let line1_tex = texture_creator.create_texture_from_surface(surf).unwrap();
-        let surf = font
-            .render(&format!(
-                "cursor {}@{:.0}",
-                self.cursor,
-                dir_cur * 180.0 / PI
-            ))
-            .blended(Color::GREEN)
-            .unwrap();
-        let line2_tex = texture_creator.create_texture_from_surface(surf).unwrap();
-        let TextureQuery {
-            width: w1,
-            height: h1,
-            ..
-        } = line1_tex.query();
-        let TextureQuery {
-            width: w2,
-            height: h2,
-            ..
-        } = line2_tex.query();
-        canvas
-            .copy(&line1_tex, None, Rect::new(0, 0, w1, h1))
-            .unwrap();
-        canvas
-            .copy(&line2_tex, None, Rect::new(0, h1 as i32, w2, h2))
-            .unwrap();
+                self.player.dir,
+                self.player.speed.len(),
+                self.player.speed
+            ),
+            font,
+            Color::GREEN,
+            TextPosition::TLCorner(0, 0),
+            canvas,
+        );
+        let l2 = display_text(
+            &format!("cursor {}@{:.0}", self.cursor, dir_cur * 180.0 / PI),
+            font,
+            Color::GREEN,
+            TextPosition::TLCorner(0, l1.h),
+            canvas,
+        );
+        display_text(
+            &format!("camera: {}", self.camera),
+            font,
+            Color::GREEN,
+            TextPosition::TLCorner(0, l1.h + l2.h),
+            canvas,
+        );
     }
 
     pub fn render(&self, canvas: &mut Canvas<Window>, font: &ttf::Font) {
@@ -240,6 +228,24 @@ impl Game {
                 SZ_H as i16 - self.cursor.y as i16,
                 3,
                 Color::WHITE,
+            )
+            .unwrap();
+        canvas
+            .line(
+                SZ_W as i16 / 2 - 10,
+                SZ_H as i16 / 2,
+                SZ_W as i16 / 2 + 10,
+                SZ_H as i16 / 2,
+                Color::GREY,
+            )
+            .unwrap();
+        canvas
+            .line(
+                SZ_W as i16 / 2,
+                SZ_H as i16 / 2 - 10,
+                SZ_W as i16 / 2,
+                SZ_H as i16 / 2 + 10,
+                Color::GREY,
             )
             .unwrap();
 

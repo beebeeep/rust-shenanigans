@@ -10,8 +10,6 @@ use sdl2::{
     video::Window,
 };
 
-use crate::vec2::*;
-
 pub const SZ_W: i32 = 1024;
 pub const SZ_H: i32 = 768;
 
@@ -26,23 +24,27 @@ pub const K_RIGHT: u32 = 8;
 pub const K_TURNLEFT: u32 = 16;
 pub const K_TURNRIGHT: u32 = 32;
 
+enum TextPosition {
+    Center(i32, i32),
+    TLCorner(i32, i32),
+}
+
 pub(crate) fn display_text(
     text: &str,
     font: &ttf::Font,
     color: Color,
-    center: Vec2,
+    position: TextPosition,
     canvas: &mut Canvas<Window>,
 ) -> Rect {
     let texture_creator = canvas.texture_creator();
     let surf = font.render(text).blended(color).unwrap();
     let texture = texture_creator.create_texture_from_surface(surf).unwrap();
     let TextureQuery { width, height, .. } = texture.query();
-    let r = Rect::new(
-        center.x as i32 - width as i32 / 2,
-        center.y as i32 + height as i32 / 2,
-        width,
-        height,
-    );
+    let (x, y) = match position {
+        TextPosition::Center(x, y) => (x - width as i32 / 2, y + height as i32 / 2),
+        TextPosition::TLCorner(x, y) => (x, y),
+    };
+    let r = Rect::new(x, y, width, height);
     canvas.copy(&texture, None, r).unwrap();
     return r;
 }
