@@ -1,14 +1,6 @@
 use crate::{body::Body, vec2::Vec2, *};
 use core::f32::consts::PI;
-use sdl2::{
-    gfx::primitives::DrawRenderer,
-    keyboard::Keycode,
-    pixels::Color,
-    rect::Rect,
-    render::{Canvas, TextureQuery},
-    ttf,
-    video::Window,
-};
+use sdl2::{gfx::primitives::DrawRenderer, keyboard::Keycode, pixels::Color, ttf, video::Window};
 
 struct Player {
     pos: Vec2,
@@ -35,8 +27,8 @@ impl Game {
             pressed_keys: 0,
             cursor: Vec2 { x: 0.0, y: 0.0 },
             camera: Vec2 { x: 0.0, y: 0.0 },
-            bodies: vec![Body::new(Vec2 { x: 400., y: 400. }, 50.0, 8)],
-            // bodies: Vec::with_capacity(0),
+            // bodies: vec![Body::new(Vec2 { x: 400., y: 400. }, 50.0, 8)],
+            bodies: Vec::with_capacity(0),
             trajectory: vec![Vec2 { x: 0.0, y: 0.0 }; 100],
             player: Player {
                 pos: Vec2 {
@@ -57,21 +49,27 @@ impl Game {
         // self.camera.x += 1.0;
 
         // rotate player towards cursor
-        let vec_cur = self.cursor - self.player.pos.to_screen(&self.camera);
-        let dir_cur = f32::atan2(vec_cur.y, vec_cur.x);
+        let dir_cur = self.get_cursor_dir();
         let mut dd = self.player.dir - dir_cur;
-        if dd > PI {
-            dd -= PI * 2.0
+        if self.player.dir > dir_cur {
+            self.player.dir -= PLAYER_ROT_SPEED
         }
-        if dd < -PI {
-            dd += PI * 2.0
+        if self.player.dir < dir_cur {
+            self.player.dir += PLAYER_ROT_SPEED
         }
-        let speed = if dd.abs() > 1.0 {
-            PLAYER_ROT_SPEED
-        } else {
-            dd.abs() * PLAYER_ROT_SPEED
-        };
-        self.player.dir -= speed * dd.signum();
+
+        // if dd > PI {
+        //     dd -= PI * 2.0
+        // }
+        // if dd < -PI {
+        //     dd += PI * 2.0
+        // }
+        // let speed = if dd.abs() > 1.0 {
+        //     PLAYER_ROT_SPEED
+        // } else {
+        //     dd.abs() * PLAYER_ROT_SPEED
+        // };
+        // self.player.dir -= speed * dd.signum();
 
         // pan camera to player if it goes outside of central area of screen
         // TODO: just use player speed
@@ -84,8 +82,8 @@ impl Game {
             "{} camera: {}, player: {}, dx: {} dy: {}",
             self.tick, self.camera, self.player.pos, offscreen.x, offscreen.y
         );
-        self.camera.x -= 0.01 * offscreen.len() * offscreen.x;
-        self.camera.y += 0.01 * offscreen.len() * offscreen.y;
+        self.camera.x += self.player.speed.x * (offscreen.len() / 100.0);
+        self.camera.y += self.player.speed.y * (offscreen.len() / 100.0);
         /*
         if offscreen.x > SZ_H as f32 / 3.0 || offscreen.y > SZ_W as f32 / 3.0 {
 
@@ -147,13 +145,13 @@ impl Game {
     }
 
     fn show_debug(&self, canvas: &mut Canvas<Window>, font: &ttf::Font) {
-        let vec_cur = self.cursor - self.player.pos.to_screen(&self.camera);
-        let dir_cur = f32::atan2(vec_cur.y, vec_cur.x);
+        let dir_cur = self.get_cursor_dir();
         let l1 = display_text(
             &format!(
-                "player {}@{:.0}, speed {:.1} {:?}",
+                "player {}@{:.0}, screen {}, speed {:.1} {:?}",
                 self.player.pos,
-                self.player.dir,
+                self.player.dir * 180.0 / PI,
+                self.player.pos.to_screen(&self.camera),
                 self.player.speed.len(),
                 self.player.speed
             ),
@@ -176,6 +174,18 @@ impl Game {
             TextPosition::TLCorner(0, l1.h + l2.h),
             canvas,
         );
+    }
+
+    fn get_cursor_dir(&self) -> f32 {
+        let vec_cur = Vec2 {
+            x: self.cursor.x,
+            y: self.cursor.y,
+        } - self.player.pos.to_screen(&self.camera);
+        let mut dir_cur = f32::atan2(vec_cur.y, vec_cur.x);
+        if dir_cur < 0.0 {
+            dir_cur += 2.0 * PI
+        }
+        return dir_cur;
     }
 
     pub fn render(&self, canvas: &mut Canvas<Window>, font: &ttf::Font) {
