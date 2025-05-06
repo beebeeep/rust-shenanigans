@@ -1,0 +1,15 @@
+syntax = "proto3";
+package glommio_test;
+
+service Test {
+  rpc Hello(HelloRequest) returns (HelloResponse);
+  rpc Hello2(HelloRequest) returns (stream HelloResponse);
+}
+
+message HelloRequest {
+  string name = 1;
+}
+
+message HelloResponse {
+  string greet = 1;
+}
