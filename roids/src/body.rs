@@ -59,11 +59,12 @@ impl Body {
                 )
                 .unwrap();
         }
+        let p = self.center.to_screen(camera);
         display_text(
             &format!("{:.1}", self.mass),
             font,
             self.color,
-            self.center,
+            TextPosition::Center(p.x as i32, p.y as i32),
             canvas,
         );
     }

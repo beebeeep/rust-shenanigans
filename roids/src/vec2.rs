@@ -48,11 +48,24 @@ impl Vec2 {
             y: SZ_H as f32 - (self.y - camera.y),
         }
     }
+
+    pub(crate) fn len(&self) -> f32 {
+        f32::sqrt(self.x * self.x + self.y * self.y)
+    }
 }
 
 impl From<(f32, f32)> for Vec2 {
     fn from(p: (f32, f32)) -> Self {
         Self { x: p.0, y: p.1 }
+    }
+}
+
+impl From<(i32, i32)> for Vec2 {
+    fn from(p: (i32, i32)) -> Self {
+        Self {
+            x: p.0 as f32,
+            y: p.1 as f32,
+        }
     }
 }
 
@@ -69,5 +82,11 @@ impl From<f32> for Vec2 {
 impl fmt::Display for Vec2 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "({}, {})", self.x as i32, self.y as i32)
+    }
+}
+
+impl fmt::Debug for Vec2 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "({:.1}, {:.1})", self.x, self.y)
     }
 }

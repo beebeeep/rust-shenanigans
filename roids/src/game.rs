@@ -1,14 +1,6 @@
 use crate::{body::Body, vec2::Vec2, *};
 use core::f32::consts::PI;
-use sdl2::{
-    gfx::primitives::DrawRenderer,
-    keyboard::Keycode,
-    pixels::Color,
-    rect::Rect,
-    render::{Canvas, TextureQuery},
-    ttf,
-    video::Window,
-};
+use sdl2::{gfx::primitives::DrawRenderer, keyboard::Keycode, pixels::Color, ttf, video::Window};
 
 struct Player {
     pos: Vec2,
@@ -35,7 +27,8 @@ impl Game {
             pressed_keys: 0,
             cursor: Vec2 { x: 0.0, y: 0.0 },
             camera: Vec2 { x: 0.0, y: 0.0 },
-            bodies: vec![Body::new(Vec2 { x: 400., y: 400. }, 50.0, 8)],
+            // bodies: vec![Body::new(Vec2 { x: 400., y: 400. }, 50.0, 8)],
+            bodies: Vec::with_capacity(0),
             trajectory: vec![Vec2 { x: 0.0, y: 0.0 }; 100],
             player: Player {
                 pos: Vec2 {
@@ -53,26 +46,50 @@ impl Game {
             return;
         }
         self.tick += 1;
-        self.camera.x += 1.0;
+        // self.camera.x += 1.0;
 
         // rotate player towards cursor
-        let dir_cur = f32::atan2(
-            self.cursor.y - self.player.pos.y,
-            self.cursor.x - self.player.pos.x,
-        );
+        let dir_cur = self.get_cursor_dir();
         let mut dd = self.player.dir - dir_cur;
-        if dd > PI {
-            dd -= PI * 2.0
+        if self.player.dir > dir_cur {
+            self.player.dir -= PLAYER_ROT_SPEED
         }
-        if dd < -PI {
-            dd += PI * 2.0
+        if self.player.dir < dir_cur {
+            self.player.dir += PLAYER_ROT_SPEED
         }
-        let speed = if dd.abs() > 1.0 {
-            PLAYER_ROT_SPEED
-        } else {
-            dd.abs() * PLAYER_ROT_SPEED
+
+        // if dd > PI {
+        //     dd -= PI * 2.0
+        // }
+        // if dd < -PI {
+        //     dd += PI * 2.0
+        // }
+        // let speed = if dd.abs() > 1.0 {
+        //     PLAYER_ROT_SPEED
+        // } else {
+        //     dd.abs() * PLAYER_ROT_SPEED
+        // };
+        // self.player.dir -= speed * dd.signum();
+
+        // pan camera to player if it goes outside of central area of screen
+        // TODO: just use player speed
+        let center = Vec2 {
+            x: SZ_W as f32 / 2.0,
+            y: SZ_H as f32 / 2.0,
         };
-        self.player.dir -= speed * dd.signum();
+        let offscreen = center - self.player.pos.to_screen(&self.camera);
+        println!(
+            "{} camera: {}, player: {}, dx: {} dy: {}",
+            self.tick, self.camera, self.player.pos, offscreen.x, offscreen.y
+        );
+        self.camera.x += self.player.speed.x * (offscreen.len() / 100.0);
+        self.camera.y += self.player.speed.y * (offscreen.len() / 100.0);
+        /*
+        if offscreen.x > SZ_H as f32 / 3.0 || offscreen.y > SZ_W as f32 / 3.0 {
+
+
+        }
+        */
 
         // calculate new player position
         (self.player.pos, self.player.speed) =
@@ -108,6 +125,8 @@ impl Game {
 
         pos.x += speed.x;
         pos.y += speed.y;
+
+        /*
         if pos.x < 0. {
             pos.x = SZ_W as f32
         }
@@ -120,52 +139,53 @@ impl Game {
         if pos.y > SZ_H as f32 {
             pos.y = 0.
         }
+        */
 
         (pos, speed)
     }
 
     fn show_debug(&self, canvas: &mut Canvas<Window>, font: &ttf::Font) {
-        let dir_cur = f32::atan2(
-            self.cursor.y - self.player.pos.y,
-            self.cursor.x - self.player.pos.x,
-        );
-        let texture_creator = canvas.texture_creator();
-        let surf = font
-            .render(&format!(
-                "player {}@{:.0} cursor {}@{:.0}",
+        let dir_cur = self.get_cursor_dir();
+        let l1 = display_text(
+            &format!(
+                "player {}@{:.0}, screen {}, speed {:.1} {:?}",
                 self.player.pos,
                 self.player.dir * 180.0 / PI,
-                self.cursor,
-                dir_cur * 180.0 / PI
-            ))
-            .blended(Color::GREEN)
-            .unwrap();
-        let line1_tex = texture_creator.create_texture_from_surface(surf).unwrap();
-        let surf = font
-            .render(&format!(
-                "cursor {}@{:.0}",
-                self.cursor,
-                dir_cur * 180.0 / PI
-            ))
-            .blended(Color::GREEN)
-            .unwrap();
-        let line2_tex = texture_creator.create_texture_from_surface(surf).unwrap();
-        let TextureQuery {
-            width: w1,
-            height: h1,
-            ..
-        } = line1_tex.query();
-        let TextureQuery {
-            width: w2,
-            height: h2,
-            ..
-        } = line2_tex.query();
-        canvas
-            .copy(&line1_tex, None, Rect::new(0, 0, w1, h1))
-            .unwrap();
-        canvas
-            .copy(&line2_tex, None, Rect::new(0, h1 as i32, w2, h2))
-            .unwrap();
+                self.player.pos.to_screen(&self.camera),
+                self.player.speed.len(),
+                self.player.speed
+            ),
+            font,
+            Color::GREEN,
+            TextPosition::TLCorner(0, 0),
+            canvas,
+        );
+        let l2 = display_text(
+            &format!("cursor {}@{:.0}", self.cursor, dir_cur * 180.0 / PI),
+            font,
+            Color::GREEN,
+            TextPosition::TLCorner(0, l1.h),
+            canvas,
+        );
+        display_text(
+            &format!("camera: {}", self.camera),
+            font,
+            Color::GREEN,
+            TextPosition::TLCorner(0, l1.h + l2.h),
+            canvas,
+        );
+    }
+
+    fn get_cursor_dir(&self) -> f32 {
+        let vec_cur = Vec2 {
+            x: self.cursor.x,
+            y: self.cursor.y,
+        } - self.player.pos.to_screen(&self.camera);
+        let mut dir_cur = f32::atan2(vec_cur.y, vec_cur.x);
+        if dir_cur < 0.0 {
+            dir_cur += 2.0 * PI
+        }
+        return dir_cur;
     }
 
     pub fn render(&self, canvas: &mut Canvas<Window>, font: &ttf::Font) {
@@ -212,10 +232,32 @@ impl Game {
             .filled_circle(p1.x as i16, p1.y as i16, 5, Color::RED)
             .unwrap();
 
-        let c = self.cursor.to_screen(&self.camera);
         // cursor
         canvas
-            .circle(c.x as i16, c.y as i16, 3, Color::GREY)
+            .circle(
+                self.cursor.x as i16,
+                SZ_H as i16 - self.cursor.y as i16,
+                3,
+                Color::WHITE,
+            )
+            .unwrap();
+        canvas
+            .line(
+                SZ_W as i16 / 2 - 10,
+                SZ_H as i16 / 2,
+                SZ_W as i16 / 2 + 10,
+                SZ_H as i16 / 2,
+                Color::GREY,
+            )
+            .unwrap();
+        canvas
+            .line(
+                SZ_W as i16 / 2,
+                SZ_H as i16 / 2 - 10,
+                SZ_W as i16 / 2,
+                SZ_H as i16 / 2 + 10,
+                Color::GREY,
+            )
             .unwrap();
 
         self.show_debug(canvas, font);
