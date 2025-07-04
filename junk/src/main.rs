@@ -1,13 +1,18 @@
-use std::{thread, time::Duration};
+use snafu::{prelude::*, Whatever};
 
-fn main() {
-    let h = thread::spawn(boo);
-    h.join().unwrap();
+#[derive(Debug, Snafu)]
+enum Error {
+    #[snafu(display("IO error: {e}: {source}"))]
+    IO { e: String, source: std::io::Error },
 }
 
-fn boo() {
-    loop {
-        println!("boo");
-        thread::sleep(Duration::from_secs(1));
+fn main() {
+    match foo().context(IOSnafu { e: "sad" }) {
+        Ok(_) => println!("ok"),
+        Err(e) => println!("{e}"),
     }
+}
+
+fn foo() -> Result<String, std::io::Error> {
+    return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "asda"));
 }

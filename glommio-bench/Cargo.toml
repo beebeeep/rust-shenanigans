@@ -1,0 +1,11 @@
+[package]
+name = "glommio-bench"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+futures-lite = "2.6.0"
+glommio = "0.9.0"
+rand = "0.9.1"
+sha2 = "0.10.9"
+zerocopy = "0.8.26"

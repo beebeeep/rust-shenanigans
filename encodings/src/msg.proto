@@ -1,0 +1,18 @@
+syntax = "proto3";
+import "google/protobuf/timestamp.proto";
+
+package encodings;
+
+message Chlos {
+  Action action = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  string comment = 3;
+  bytes value = 4;
+  int32 count = 5;
+}
+
+
+enum Action {
+  SEE = 0;
+  HEAR = 1;
+}
