@@ -100,8 +100,8 @@ impl Server {
         &self,
         w: &mut BufWriter<TcpStream>,
         code: Code,
-        headers: Option<Vec<(Box<str>, Box<str>)>>,
-        body: Option<Box<[u8]>>,
+        headers: Option<Vec<(&str, &str)>>,
+        body: Option<&[u8]>,
     ) -> Result<(), Whatever> {
         w.write(format!("HTTP/1.1 {}\r\n", code,).as_bytes())
             .await
@@ -123,7 +123,7 @@ impl Server {
             .await
             .whatever_context("writing header")?;
         if let Some(body) = body {
-            w.write(&body).await.whatever_context("writing body")?;
+            w.write(body).await.whatever_context("writing body")?;
         }
 
         w.flush().await.whatever_context("flushing buffer")
@@ -161,7 +161,7 @@ impl Server {
                                 &mut w,
                                 Code::NotFound,
                                 None,
-                                Some("file not found".as_bytes().into()),
+                                Some("file not found".as_bytes()),
                             )
                             .await;
                     }
@@ -179,10 +179,7 @@ impl Server {
                         self.reply(
                             &mut w,
                             Code::Ok,
-                            Some(vec![(
-                                "Content-Length".into(),
-                                format!("{}", meta.len()).into(),
-                            )]),
+                            Some(vec![("Content-Length", format!("{}", meta.len()).as_str())]),
                             None,
                         )
                         .await?;
