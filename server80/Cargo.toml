@@ -1,0 +1,13 @@
+[package]
+name = "server80"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-executor = "1.13.3"
+async-fs = "2.2.0"
+async-net = "2.0.0"
+easy-parallel = "3.3.1"
+futures-lite = "2.6.1"
+smol = "2.0.2"
+snafu = "0.8.9"
