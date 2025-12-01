@@ -10,6 +10,7 @@ use smol::{
 use snafu::{ResultExt, Whatever};
 use std::{
     collections::HashMap,
+    net::SocketAddr,
     path::{Path, PathBuf},
     rc::Rc,
 };
@@ -23,12 +24,22 @@ struct Server {
 
 struct Request {
     method: Method,
+    client: SocketAddr,
     headers: HashMap<Box<str>, Box<str>>,
     body: Option<Box<[u8]>>,
 }
 
+struct Reply {
+    code: Code,
+    headers: Option<Vec<(Box<str>, Box<str>)>>,
+}
+
 impl Server {
-    async fn handle_connection(&self, stream: TcpStream) -> Result<(), Whatever> {
+    async fn handle_connection(
+        &self,
+        stream: TcpStream,
+        client: SocketAddr,
+    ) -> Result<(), Whatever> {
         let mut r = io::BufReader::new(stream.clone());
         let mut w = io::BufWriter::new(stream);
         let mut start = String::new();
@@ -78,6 +89,7 @@ impl Server {
         let req = match (m.next(), m.next(), m.next()) {
             (Some("GET"), Some(target), Some(_)) => Request {
                 method: Method::Get(target.into()),
+                client,
                 headers,
                 body,
             },
@@ -89,9 +101,15 @@ impl Server {
             }
         };
 
-        self.handle_request(req, w)
-            .await
-            .whatever_context("handling request")?;
+        let method = req.method.clone();
+        match self.handle_request(req, w).await {
+            Ok(reply) => {
+                eprintln!("{:?} {} {}", method, reply.code, client);
+            }
+            Err(e) => {
+                eprintln!("Error handling request from {}: {e:?}", client);
+            }
+        }
 
         Ok(())
     }
@@ -100,14 +118,14 @@ impl Server {
         &self,
         w: &mut BufWriter<TcpStream>,
         code: Code,
-        headers: Option<Vec<(&str, &str)>>,
+        headers: Option<Vec<(Box<str>, Box<str>)>>,
         body: Option<&[u8]>,
-    ) -> Result<(), Whatever> {
+    ) -> Result<Reply, Whatever> {
         w.write(format!("HTTP/1.1 {}\r\n", code,).as_bytes())
             .await
             .whatever_context("writing header")?;
 
-        if let Some(headers) = headers {
+        if let Some(ref headers) = headers {
             for (k, v) in headers {
                 w.write(format!("{}: {}\r\n", k, v).as_bytes())
                     .await
@@ -126,7 +144,8 @@ impl Server {
             w.write(body).await.whatever_context("writing body")?;
         }
 
-        w.flush().await.whatever_context("flushing buffer")
+        w.flush().await.whatever_context("flushing buffer")?;
+        Ok(Reply { code, headers })
     }
 
     fn get_file_path(&self, path: &str) -> Option<impl AsRef<Path>> {
@@ -146,7 +165,7 @@ impl Server {
         &self,
         req: Request,
         mut w: BufWriter<TcpStream>,
-    ) -> Result<(), Whatever> {
+    ) -> Result<Reply, Whatever> {
         if req.headers.get("host").is_none() {
             self.reply(&mut w, Code::BadRequest, None, None).await?;
         }
@@ -176,14 +195,19 @@ impl Server {
                             }
                         };
 
-                        self.reply(
-                            &mut w,
-                            Code::Ok,
-                            Some(vec![("Content-Length", format!("{}", meta.len()).as_str())]),
-                            None,
-                        )
-                        .await?;
+                        let reply = self
+                            .reply(
+                                &mut w,
+                                Code::Ok,
+                                Some(vec![(
+                                    Box::from("Content-Length"),
+                                    Box::from(format!("{}", meta.len())),
+                                )]),
+                                None,
+                            )
+                            .await?;
                         io::copy(f, w).await.whatever_context("writing file")?;
+                        Ok(reply)
                     }
                     Err(e) => {
                         return self.reply(&mut w, Code::from(e), None, None).await;
@@ -191,7 +215,6 @@ impl Server {
                 }
             }
         }
-        Ok(())
     }
 }
 
@@ -205,10 +228,9 @@ fn main() {
         };
         loop {
             if let Ok((stream, peer_addr)) = listener.accept().await {
-                eprintln!("connection from {peer_addr}");
                 let s = server.clone();
                 if let Err(e) = ex
-                    .spawn(async move { s.handle_connection(stream).await })
+                    .spawn(async move { s.handle_connection(stream, peer_addr).await })
                     .await
                 {
                     eprintln!("handling connection: {e}");

@@ -1,5 +1,6 @@
 use std::fmt::Display;
 
+#[derive(Debug, Clone)]
 pub(crate) enum Method {
     Get(Box<str>),
 }
